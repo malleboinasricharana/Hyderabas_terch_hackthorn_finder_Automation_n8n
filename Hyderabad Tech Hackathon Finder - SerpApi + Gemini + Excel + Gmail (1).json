@@ -1,0 +1,318 @@
+{
+  "name": "Hyderabad Tech Hackathon Finder - SerpApi + Gemini + Excel + Gmail",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google"
+            },
+            {
+              "name": "q",
+              "value": "hackathons in Hyderabad"
+            },
+            {
+              "name": "location",
+              "value": "Hyderabad, Telangana, India"
+            },
+            {
+              "name": "gl",
+              "value": "in"
+            },
+            {
+              "name": "hl",
+              "value": "en"
+            },
+            {
+              "name": "api_key",
+              "value": "**"
+            },
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "id": "7d5b1009-c770-4380-a878-168f123ee75a",
+      "name": "SerpApi - Google Events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const events = $json.events_results || [];\nreturn events.map((e, i) => ({\n  json: {\n    source_index: i + 1,\n    title: e.title || '',\n    date: e.date?.start_date || e.date?.when || '',\n    time: e.date?.start_time || '',\n    venue: e.venue?.name || '',\n    address: Array.isArray(e.address) ? e.address.join(', ') : (e.address || ''),\n    description: e.description || '',\n    link: e.link || e.event_link || '',\n    ticket_info: e.ticket_info || ''\n  }\n}));"
+      },
+      "id": "c00edefd-8b4e-43fe-a8c0-d059f47b2a41",
+      "name": "Extract Event Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const seen = new Set();\nconst out = [];\nfor (const item of $input.all()) {\n  const e = item.json;\n  const key = `${(e.title || '').toLowerCase().trim()}|${(e.date || '').toLowerCase().trim()}|${(e.venue || '').toLowerCase().trim()}`;\n  if (!seen.has(key)) {\n    seen.add(key);\n    out.push({ json: e });\n  }\n}\nreturn out;"
+      },
+      "id": "613b63de-42da-40c6-b8ca-dd2ae17488ee",
+      "name": "Remove Duplicates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "**"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-goog-api-key",
+              "value": "****"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"You are a strict event classifier. Decide whether this event is a genuine technology-focused hackathon or technology event in Hyderabad. Relevant topics include software development, AI, machine learning, data science, cybersecurity, cloud, web development, mobile development, blockchain, robotics, developer tools, and technology innovation. Return ONLY valid JSON with exactly these keys: relevant (boolean), category (string), score (number from 0 to 10), reason (string), summary (string).\\n\\nEvent title: {{$json.title}}\\nDate: {{$json.date}}\\nTime: {{$json.time}}\\nVenue: {{$json.venue}}\\nAddress: {{$json.address}}\\nDescription: {{$json.description}}\\nLink: {{$json.link}}\"\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "26f322f7-981f-450e-830b-0f9028fbdd7d",
+      "name": "Gemini - Classify Event",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1312,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('Remove Duplicates').item.json;\nconst text = $json.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';\nlet parsed;\ntry {\n  const cleaned = text.replace(/```json|```/g, '').trim();\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  parsed = { relevant: false, category: 'Unknown', score: 0, reason: 'Gemini returned invalid JSON', summary: '' };\n}\nreturn [{\n  json: {\n    title: original.title,\n    date: original.date,\n    time: original.time,\n    venue: original.venue,\n    address: original.address,\n    description: original.description,\n    link: original.link,\n    ticket_info: original.ticket_info,\n    relevant: Boolean(parsed.relevant),\n    category: parsed.category || '',\n    relevance_score: Number(parsed.score) || 0,\n    reason: parsed.reason || '',\n    summary: parsed.summary || ''\n  }\n}];"
+      },
+      "id": "62c8d2be-46e1-4c5e-8bea-4382822706dd",
+      "name": "Parse Gemini Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.relevant}}",
+              "value2": true
+            }
+          ],
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "e8fe04c0-0014-4fa7-93ea-5cf39b32ff32",
+      "name": "IF - Relevant",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all()\n  .sort((a,b) => (Number(b.json.relevance_score)||0) - (Number(a.json.relevance_score)||0))\n  .slice(0, 15);"
+      },
+      "id": "bc6e3e6a-034c-4626-9472-cb3d81234198",
+      "name": "Top 15 Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toFile",
+        "fileFormat": "xlsx",
+        "options": {}
+      },
+      "id": "1100c7e5-5f14-4d0c-ba7c-26ea2cba558a",
+      "name": "Create Excel XLSX",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [
+        2304,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "malleboinasricharana08@gmail.com",
+        "subject": "About the Event and hackathon in Hyd",
+        "emailType": "text",
+        "message": "Hi,  Attached is the latest list of up to 15 relevant technology hackathons/events found in Hyderabad.  The Excel file contains the event name, date, venue, category, description, relevance score, and registration link.  Regards, Hackathon Finder",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {}
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2528,
+        128
+      ],
+      "id": "3df5f7ad-b60b-4b8e-81fe-33c2cb3a01fd",
+      "name": "Send a message",
+      "webhookId": "be37211b-96f7-45af-9961-2dc3fa82d807",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "atYa8kom5Soxo51P",
+          "name": "Gmail account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "SerpApi - Google Events": {
+      "main": [
+        [
+          {
+            "node": "Extract Event Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Event Fields": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Gemini - Classify Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Classify Event": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini Result": {
+      "main": [
+        [
+          {
+            "node": "IF - Relevant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Relevant": {
+      "main": [
+        [
+          {
+            "node": "Top 15 Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Top 15 Events": {
+      "main": [
+        [
+          {
+            "node": "Create Excel XLSX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Excel XLSX": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "57ee153c-ef9c-4435-bfbe-7df8c7f2796c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ca7c2ccf0afe33501cb80c1a0f1664b6fad6682866dbf12b5a55e0cc1d8aa558"
+  },
+  "nodeGroups": [],
+  "id": "LB8Xpl4nL2KPh1Nw",
+  "tags": []
+}
